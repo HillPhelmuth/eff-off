@@ -3,7 +3,6 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer as createViteServer } from "vite";
 import { EFF_OFF_INSTRUCTIONS, REALTIME_MODEL, REALTIME_VOICE } from "./prompt.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -165,6 +164,7 @@ if (isProd) {
     console.log(`[eff-off] production on :${port} model=${REALTIME_MODEL}`);
   });
 } else {
+  const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({
     root,
     server: { middlewareMode: true },
