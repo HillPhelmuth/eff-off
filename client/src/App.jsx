@@ -9,15 +9,22 @@ function extractTranscripts(history = []) {
     let text = "";
     if (Array.isArray(item.content)) {
       text = item.content
-        .map((c) => c?.transcript || c?.text || c?.input_text || "")
+        .map((c) => {
+          if (!c) return "";
+          if (c.type === "input_audio" || c.type === "output_audio") return c.transcript || "";
+          if (c.type === "input_text" || c.type === "output_text") return c.text || "";
+          return c.transcript || c.text || "";
+        })
         .filter(Boolean)
         .join(" ")
         .trim();
-    } else if (typeof item.transcript === "string") {
-      text = item.transcript;
     }
     if (text) {
-      rows.push({ id: item.itemId || item.id || `${role}-${rows.length}-${text.slice(0, 12)}`, role, text });
+      rows.push({
+        id: item.itemId || `${role}-${rows.length}-${text.slice(0, 12)}`,
+        role,
+        text,
+      });
     }
   }
   return rows;
