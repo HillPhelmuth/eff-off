@@ -51,7 +51,19 @@ docker run --rm -p 3000:3000 -e OPENAI_API_KEY=sk-... eff-off
 
 ## GitHub Actions publish
 
-On every push to `main`, [`.github/workflows/publish.yml`](.github/workflows/publish.yml):
+The workflow file ships as [`deploy/publish.yml`](deploy/publish.yml) so it can land in the repo without requiring the `workflow` OAuth scope on the bootstrap token. Enable publishing with:
+
+```bash
+mkdir -p .github/workflows
+cp deploy/publish.yml .github/workflows/publish.yml
+git add .github/workflows/publish.yml
+git commit -m "ci: enable GHCR publish workflow"
+git push
+```
+
+(Requires a token / SSO permission that can write GitHub Actions workflows.)
+
+Once enabled, every push to `main`:
 
 1. runs `npm ci` + `npm run build`
 2. builds a multi-layer Docker image
@@ -89,7 +101,7 @@ client/src/
   App.jsx       Consent UI, connect / hangup, transcripts
   agent.js      RealtimeAgent + RealtimeSession (WebRTC)
   styles.css
-.github/workflows/publish.yml
+deploy/publish.yml   # copy → .github/workflows/publish.yml to enable CI
 Dockerfile
 ```
 
