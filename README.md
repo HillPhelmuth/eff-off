@@ -85,7 +85,7 @@ docker run --rm -p 3000:3000 -e OPENAI_API_KEY=sk-... ghcr.io/<owner>/eff-off:la
 |---|---|---|
 | `OPENAI_API_KEY` | yes | Server only |
 | `OPENAI_REALTIME_MODEL` | no | default `gpt-realtime-2.1-mini` |
-| `OPENAI_REALTIME_VOICE` | no | default `ballad` |
+| `OPENAI_REALTIME_VOICE` | no | default `ballad` (server default if UI does not pick) |
 | `CLIENT_SECRET_TTL_SECONDS` | no | default `600` |
 | `PORT` | no | default `3000` |
 
@@ -98,16 +98,27 @@ server/
   index.js      Express API + Vite middleware / static
   prompt.js     Insult-comic system prompt + model defaults
 client/src/
-  App.jsx       Consent UI, connect / hangup, transcripts
+  App.jsx       Consent UI, voice picker, connect / hangup, transcripts
   agent.js      RealtimeAgent + RealtimeSession (WebRTC)
   styles.css
 deploy/publish.yml   # copy → .github/workflows/publish.yml to enable CI
 Dockerfile
 ```
 
+## Voices
+
+The stage UI has a **Voice** dropdown with the built-in Realtime voices:
+
+`alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`
+
+- List: `GET /api/voices` (also embedded on `GET /api/health`)
+- Selection is sent on `POST /api/session` as `{ voice }` and stamped into `session.audio.output.voice` when the ephemeral key is minted
+- Choice is remembered in `localStorage` (`effoff.voice`); switch requires hangup + reconnect
+- Server default if unset/invalid: `OPENAI_REALTIME_VOICE` (default `ballad`)
+
 ## Notes
 
-- Voice default: `ballad` (gritty). Override with `OPENAI_REALTIME_VOICE` (`alloy`, `ash`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, …).
+- Voice default: `ballad`. Prefer `marin` / `cedar` for highest quality; other IDs for character variety.
 - Reasoning effort is set to `low` for snappy club timing.
 - Input audio uses server VAD with barge-in so you can heckle mid-roast.
 

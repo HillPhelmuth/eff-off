@@ -3,7 +3,13 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EFF_OFF_INSTRUCTIONS, REALTIME_MODEL, REALTIME_VOICE } from "./prompt.js";
+import {
+  EFF_OFF_INSTRUCTIONS,
+  REALTIME_MODEL,
+  REALTIME_VOICE,
+  REALTIME_VOICES,
+  resolveRealtimeVoice,
+} from "./prompt.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +27,8 @@ if (!apiKey) {
 const app = express();
 app.use(express.json({ limit: "32kb" }));
 
-function buildSessionBody() {
+function buildSessionBody(voice) {
+  const resolvedVoice = resolveRealtimeVoice(voice);
   return {
     expires_after: {
       anchor: "created_at",
@@ -48,7 +55,7 @@ function buildSessionBody() {
           },
         },
         output: {
-          voice: REALTIME_VOICE,
+          voice: resolvedVoice,
         },
       },
       // low latency insult comic — keep reasoning light
@@ -59,12 +66,24 @@ function buildSessionBody() {
 }
 
 app.get("/api/health", (_req, res) => {
+  const defaultVoice = resolveRealtimeVoice(REALTIME_VOICE);
   res.json({
     ok: true,
     name: "eff-off",
     model: REALTIME_MODEL,
-    voice: REALTIME_VOICE,
+    voice: defaultVoice,
+    voices: REALTIME_VOICES,
     hasApiKey: Boolean(apiKey),
+  });
+});
+
+/**
+ * List built-in Realtime voices available for session create.
+ */
+app.get("/api/voices", (_req, res) => {
+  res.json({
+    default: resolveRealtimeVoice(REALTIME_VOICE),
+    voices: REALTIME_VOICES,
   });
 });
 
@@ -72,6 +91,7 @@ app.get("/api/health", (_req, res) => {
  * Mint an ephemeral client secret for browser WebRTC.
  * Browser never sees OPENAI_API_KEY.
  * Docs: POST /v1/realtime/client_secrets
+ * Optional body.voice selects audio.output.voice (validated against REALTIME_VOICES).
  */
 app.post("/api/session", async (req, res) => {
   if (!apiKey) {
@@ -85,6 +105,7 @@ app.post("/api/session", async (req, res) => {
       (typeof req.body?.safetyIdentifier === "string" &&
         req.body.safetyIdentifier.slice(0, 128)) ||
       "eff-off-anonymous";
+    const voice = resolveRealtimeVoice(req.body?.voice);
 
     const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
@@ -93,7 +114,7 @@ app.post("/api/session", async (req, res) => {
         "Content-Type": "application/json",
         "OpenAI-Safety-Identifier": safetyId,
       },
-      body: JSON.stringify(buildSessionBody()),
+      body: JSON.stringify(buildSessionBody(voice)),
     });
 
     const text = await response.text();
@@ -117,7 +138,7 @@ app.post("/api/session", async (req, res) => {
       value: data.value,
       expires_at: data.expires_at,
       model: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
+      voice,
     });
   } catch (err) {
     console.error("[eff-off] /api/session failed", err);
@@ -126,22 +147,19 @@ app.post("/api/session", async (req, res) => {
 });
 
 // Legacy alias matching OpenAI console samples
-app.get("/token", async (_req, res) => {
-  // forward to JSON POST semantics
-  const fakeReq = { body: {} };
-  // re-use handler logic via internal call by creating a local response shim is messy —
-  // just duplicate the small happy-path
+app.get("/token", async (req, res) => {
   if (!apiKey) {
     return res.status(500).json({ error: "OPENAI_API_KEY missing" });
   }
   try {
+    const voice = resolveRealtimeVoice(req.query?.voice);
     const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(buildSessionBody()),
+      body: JSON.stringify(buildSessionBody(voice)),
     });
     const data = await response.json();
     if (!response.ok) {

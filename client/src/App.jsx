@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { startSession } from "./agent.js";
+import { DEFAULT_VOICE, FALLBACK_VOICES, fetchVoices, startSession } from "./agent.js";
 
 function extractTranscripts(history = []) {
   const rows = [];
@@ -30,11 +30,23 @@ function extractTranscripts(history = []) {
   return rows;
 }
 
+function loadSavedVoice(voices, fallback) {
+  try {
+    const saved = localStorage.getItem("effoff.voice");
+    if (saved && voices.some((v) => v.id === saved)) return saved;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
 export default function App() {
   const [status, setStatus] = useState("idle"); // idle | connecting | live | error
   const [error, setError] = useState("");
   const [lines, setLines] = useState([]);
   const [model, setModel] = useState("gpt-realtime-2.1-mini");
+  const [voice, setVoice] = useState(DEFAULT_VOICE);
+  const [voices, setVoices] = useState(FALLBACK_VOICES);
   const [micLevel, setMicLevel] = useState(0);
   const [consented, setConsented] = useState(false);
   const [twenties, setTwenties] = useState(false);
@@ -42,6 +54,24 @@ export default function App() {
   const logRef = useRef(null);
 
   const live = status === "live";
+  const busy = status === "connecting" || live;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { voices: list, defaultVoice } = await fetchVoices();
+      if (cancelled) return;
+      setVoices(list);
+      setVoice((prev) => {
+        // Prefer saved/current if still valid; else server default.
+        if (list.some((v) => v.id === prev)) return prev;
+        return loadSavedVoice(list, defaultVoice);
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (logRef.current) {
@@ -98,11 +128,22 @@ export default function App() {
 
   const canConnect = consented && twenties && status !== "connecting" && status !== "live";
 
+  const onVoiceChange = useCallback((e) => {
+    const next = e.target.value;
+    setVoice(next);
+    try {
+      localStorage.setItem("effoff.voice", next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const onConnect = useCallback(async () => {
     setError("");
     setStatus("connecting");
     try {
       const established = await startSession({
+        voice,
         safetyIdentifier: localStorage.getItem("effoff.sid") || (() => {
           const id = crypto.randomUUID();
           localStorage.setItem("effoff.sid", id);
@@ -126,13 +167,14 @@ export default function App() {
       });
       handle.current = established;
       setModel(established.model || "gpt-realtime-2.1-mini");
+      if (established.voice) setVoice(established.voice);
       setStatus("live");
     } catch (e) {
       console.error(e);
       setError(e?.message || String(e));
       setStatus("error");
     }
-  }, []);
+  }, [voice]);
 
   const onHangup = useCallback(() => {
     handle.current?.close();
@@ -157,11 +199,15 @@ export default function App() {
     }
   }, [status]);
 
+  const voiceMeta = voices.find((v) => v.id === voice);
+
   return (
     <div className="page">
       <div className="noise" aria-hidden />
       <header className="hero">
-        <div className="badge">OPENAI REALTIME · {model}</div>
+        <div className="badge">
+          OPENAI REALTIME · {model} · {voice}
+        </div>
         <h1>
           EFF<span className="dash">-</span>OFF
         </h1>
@@ -208,6 +254,32 @@ export default function App() {
         <div className="status-row">
           <span className={`dot ${status}`} />
           <span className="status-text">{statusLabel}</span>
+        </div>
+
+        <div className="voice-picker">
+          <label htmlFor="voice-select">
+            Voice <span className="muted-inline">(locks in when you go live)</span>
+          </label>
+          <select
+            id="voice-select"
+            value={voice}
+            onChange={onVoiceChange}
+            disabled={busy}
+            aria-label="Realtime voice"
+          >
+            {voices.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+                {v.vibe ? ` — ${v.vibe}` : ""}
+              </option>
+            ))}
+          </select>
+          {voiceMeta?.vibe ? (
+            <p className="voice-hint muted">
+              Selected: <strong>{voiceMeta.label}</strong> · {voiceMeta.vibe}
+              {busy ? " · reconnect to switch" : ""}
+            </p>
+          ) : null}
         </div>
 
         <div className="viz" aria-hidden>

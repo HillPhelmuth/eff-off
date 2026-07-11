@@ -104,3 +104,33 @@ If they say bye / hang up intent: one final jackhammer compliment-insult hybrid 
 
 export const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2.1-mini";
 export const REALTIME_VOICE = process.env.OPENAI_REALTIME_VOICE || "ballad";
+
+/**
+ * Built-in voices supported by OpenAI Realtime (gpt-realtime family).
+ * Prefer marin/cedar for quality; ballad et al. still work for character variety.
+ * @see https://developers.openai.com/api/docs/guides/voice-agents
+ */
+export const REALTIME_VOICES = [
+  { id: "alloy", label: "Alloy", vibe: "neutral, balanced" },
+  { id: "ash", label: "Ash", vibe: "clear, steady" },
+  { id: "ballad", label: "Ballad", vibe: "warm, theatrical" },
+  { id: "coral", label: "Coral", vibe: "bright, upbeat" },
+  { id: "echo", label: "Echo", vibe: "smooth, mid" },
+  { id: "sage", label: "Sage", vibe: "calm, measured" },
+  { id: "shimmer", label: "Shimmer", vibe: "light, bright" },
+  { id: "verse", label: "Verse", vibe: "expressive" },
+  { id: "marin", label: "Marin", vibe: "natural (recommended)" },
+  { id: "cedar", label: "Cedar", vibe: "conversational (recommended)" },
+];
+
+const VOICE_IDS = new Set(REALTIME_VOICES.map((v) => v.id));
+
+/** Normalize a client/server voice id; falls back to REALTIME_VOICE. */
+export function resolveRealtimeVoice(requested) {
+  if (typeof requested === "string") {
+    const id = requested.trim().toLowerCase();
+    if (VOICE_IDS.has(id)) return id;
+  }
+  if (VOICE_IDS.has(REALTIME_VOICE)) return REALTIME_VOICE;
+  return "ballad";
+}
