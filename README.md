@@ -2,38 +2,29 @@
 
 **Always-on NSFW insult comic** — a realtime speech-to-speech voice agent that roasts you no matter what you say.
 
-Built with [OpenAI Voice Agents](https://developers.openai.com/api/docs/guides/voice-agents) on model **`gpt-realtime-2.1-mini`**, using the Agents SDK (`RealtimeAgent` + `RealtimeSession` over WebRTC) and the Realtime [prompting guide](https://developers.openai.com/api/docs/guides/realtime-models-prompting).
+Built with [OpenAI GPT-Live](https://developers.openai.com/api/docs/guides/live) on **`gpt-live-1`**, using native browser WebRTC. Default voice: **`marin`**. This is a voice-only app with no reasoning backend or tools.
 
-> Adults only. Consensual roast comedy. The system prompt forbids content involving minors and other hard safety lines, while staying maximally mean otherwise.
+> Adults only. Consensual roast comedy. Consent is required before microphone capture.
 
 ## Architecture
 
-```
-Browser (WebRTC + @openai/agents/realtime)
-        │  POST /api/session  → ephemeral client secret (ek_…)
-        ▼
-Express server  ──Bearer OPENAI_API_KEY──►  POST /v1/realtime/client_secrets
-        │
-        └─ session.instructions = EFF-OFF insult-comic prompt
-           session.model        = gpt-realtime-2.1-mini
+The browser creates an SDP offer and sends `POST /api/session` with `{ sdp, safetyIdentifier }`. Express exchanges it with `POST https://api.openai.com/v1/live/sessions`, adding the model, voice and prompt on the server. It returns `{ sessionId, sdp, model, voice }`. The project API key never leaves the server; audio flows directly between the browser and OpenAI.
 
-Browser connects RealtimeSession with the ephemeral key directly to OpenAI WebRTC.
-```
+The `oai-events` data channel carries Live events. Startup waits for `session.started`; an acknowledged `session.instructions.append` requests the opening roast. Input and output transcript fragments grow independently, including overlapping speech. Caption rows use a one-second grouping gap, not semantic turn boundaries. The microphone meter shares the call's capture stream.
 
-The long-lived API key **never leaves the server**. Browsers only receive a short-lived `ek_…` client secret.
+Hangup immediately stops microphone capture and playback, then waits up to five seconds for `session.closed` before releasing WebRTC. Missing finalization is reported; connection startup times out after 30 seconds. Sessions are not stored and each new call starts fresh. Unexpected client delegation receives a fixed capability-unavailable result without invoking another model.
 
 ## Local development
 
-```bash
-cp .env.example .env
-# put OPENAI_API_KEY=sk-... in .env
+Create `.env` with `OPENAI_API_KEY=your-project-key` (requires GPT-Live access). Optional settings are listed below.
 
+```bash
 npm install
 npm run dev
-# → http://localhost:3000
+# http://localhost:3000
 ```
 
-Check the gateboxes (18+ consent), hit **Step on stage**, allow mic access, get roasted.
+Check both consent boxes, hit **Step on stage**, allow microphone access, and get roasted. Use HTTPS or localhost. You can cancel while connecting.
 
 ## Production
 
@@ -84,9 +75,8 @@ docker run --rm -p 3000:3000 -e OPENAI_API_KEY=sk-... ghcr.io/<owner>/eff-off:la
 | Variable | Required | Notes |
 |---|---|---|
 | `OPENAI_API_KEY` | yes | Server only |
-| `OPENAI_REALTIME_MODEL` | no | default `gpt-realtime-2.1-mini` |
-| `OPENAI_REALTIME_VOICE` | no | default `ballad` |
-| `CLIENT_SECRET_TTL_SECONDS` | no | default `600` |
+| `OPENAI_LIVE_MODEL` | no | default `gpt-live-1` |
+| `OPENAI_LIVE_VOICE` | no | default `marin` |
 | `PORT` | no | default `3000` |
 
 If you host on a PaaS (Railway / Fly / Render / Cloud Run), point it at the GHCR image and set `OPENAI_API_KEY` there. Actions already published the image.
@@ -95,21 +85,28 @@ If you host on a PaaS (Railway / Fly / Render / Cloud Run), point it at the GHCR
 
 ```
 server/
-  index.js      Express API + Vite middleware / static
+  index.js      Express + Vite middleware / static
+  api.js        Live SDP exchange and health endpoint
   prompt.js     Insult-comic system prompt + model defaults
 client/src/
   App.jsx       Consent UI, connect / hangup, transcripts
-  agent.js      RealtimeAgent + RealtimeSession (WebRTC)
+  agent.js      Native WebRTC and Live session lifecycle
+  captions.js   Timestamped Live transcript grouping
   styles.css
 deploy/publish.yml   # copy → .github/workflows/publish.yml to enable CI
 Dockerfile
 ```
 
-## Notes
+## Migration and validation
 
-- Voice default: `ballad` (gritty). Override with `OPENAI_REALTIME_VOICE` (`alloy`, `ash`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, …).
-- Reasoning effort is set to `low` for snappy club timing.
-- Input audio uses server VAD with barge-in so you can heckle mid-roast.
+Replace old `OPENAI_REALTIME_MODEL` and `OPENAI_REALTIME_VOICE` deployment settings with the Live variables above. Old variables and `CLIENT_SECRET_TTL_SECONDS` are no longer used. `GET /token` returns JSON status 410; `/api/session` now exchanges SDP rather than issuing tokens. No Realtime fallback is used. See the [migration guide](https://developers.openai.com/api/docs/guides/live-migration).
+
+```bash
+npm test
+npm run build
+```
+
+Tests mock HTTP and WebRTC to verify startup sequencing, protocol payloads, failures, delegation fallback, caption grouping, cancellation and cleanup. For a real smoke test, verify greeting audio, two-way speech, captions, interruptions, denied microphone access, hangup and reconnect. Confirm microphone capture ends and browser traffic contains neither a project key nor Realtime requests. Live account access and spoken quality require this real test; a passing build alone does not verify them.
 
 ## License
 

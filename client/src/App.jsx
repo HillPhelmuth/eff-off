@@ -1,55 +1,29 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startSession } from "./agent.js";
-
-function extractTranscripts(history = []) {
-  const rows = [];
-  for (const item of history) {
-    if (!item || item.type !== "message") continue;
-    const role = item.role === "user" ? "you" : "eff-off";
-    let text = "";
-    if (Array.isArray(item.content)) {
-      text = item.content
-        .map((c) => {
-          if (!c) return "";
-          if (c.type === "input_audio" || c.type === "output_audio") return c.transcript || "";
-          if (c.type === "input_text" || c.type === "output_text") return c.text || "";
-          return c.transcript || c.text || "";
-        })
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-    }
-    if (text) {
-      rows.push({
-        id: item.itemId || `${role}-${rows.length}-${text.slice(0, 12)}`,
-        role,
-        text,
-      });
-    }
-  }
-  return rows;
-}
+import { createCaptions } from "./captions.js";
 
 export default function App() {
   const [status, setStatus] = useState("idle"); // idle | connecting | live | error
   const [error, setError] = useState("");
   const [lines, setLines] = useState([]);
-  const [model, setModel] = useState("gpt-realtime-2.1-mini");
+  const [model, setModel] = useState("gpt-live-1");
   const [micLevel, setMicLevel] = useState(0);
   const [consented, setConsented] = useState(false);
   const [twenties, setTwenties] = useState(false);
   const handle = useRef(null);
   const logRef = useRef(null);
+  const attempt = useRef(null);
+  const followCaptions = useRef(true);
 
   const live = status === "live";
 
   useEffect(() => {
-    if (logRef.current) {
+    if (logRef.current && followCaptions.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [lines]);
 
-  // Soft mic meter while live (separately from WebRTC track used by the SDK)
+  // Meter the microphone stream already used by WebRTC.
   useEffect(() => {
     if (!live) {
       setMicLevel(0);
@@ -63,7 +37,8 @@ export default function App() {
 
     (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = handle.current?.microphone;
+        if (!stream) return;
         ctx = new AudioContext();
         const src = ctx.createMediaStreamSource(stream);
         analyser = ctx.createAnalyser();
@@ -91,56 +66,76 @@ export default function App() {
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
-      stream?.getTracks().forEach((t) => t.stop());
       ctx?.close?.();
     };
   }, [live]);
 
-  const canConnect = consented && twenties && status !== "connecting" && status !== "live";
+  const canConnect = consented && twenties && status !== "connecting" && status !== "live" && status !== "closing";
 
   const onConnect = useCallback(async () => {
     setError("");
+    setLines([]);
+    followCaptions.current = true;
+    const controller = new AbortController();
+    attempt.current = controller;
+    const captions = createCaptions();
     setStatus("connecting");
     try {
       const established = await startSession({
+        signal: controller.signal,
         safetyIdentifier: localStorage.getItem("effoff.sid") || (() => {
           const id = crypto.randomUUID();
           localStorage.setItem("effoff.sid", id);
           return id;
         })(),
         onEvent: (name, payload) => {
-          if (name === "history_updated") {
-            // RealtimeSession emits history_updated with the full history array.
-            const next = extractTranscripts(Array.isArray(payload) ? payload : []);
-            if (next.length) setLines(next);
+          if (attempt.current !== controller || controller.signal.aborted) return;
+          if (name === "session.input_transcript.delta" || name === "session.output_transcript.delta") {
+            setLines(captions(payload));
           }
-          if (name === "error") {
+          if (name === "session.closed" || name === "connection_error") {
+            handle.current = null;
+            setStatus(name === "session.closed" ? "idle" : "error");
+          }
+          if (name === "error" || name === "connection_error") {
             console.error(payload);
             const err = payload?.error ?? payload;
             setError(
               (err && (err.message || err.error?.message)) ||
-                "Realtime session error",
+                "Live session error",
             );
           }
         },
       });
+      if (controller.signal.aborted || attempt.current !== controller) {
+        await established.close();
+        return;
+      }
       handle.current = established;
-      setModel(established.model || "gpt-realtime-2.1-mini");
+      setModel(established.model || "gpt-live-1");
       setStatus("live");
     } catch (e) {
+      if (controller.signal.aborted || attempt.current !== controller) return;
       console.error(e);
       setError(e?.message || String(e));
       setStatus("error");
     }
   }, []);
 
-  const onHangup = useCallback(() => {
-    handle.current?.close();
+  const onHangup = useCallback(async () => {
+    const current = handle.current;
+    setStatus("closing");
+    if (current) await current.close();
+    else attempt.current?.abort();
     handle.current = null;
+    attempt.current = null;
     setStatus("idle");
   }, []);
 
-  useEffect(() => () => handle.current?.close(), []);
+  useEffect(() => () => {
+    attempt.current?.abort();
+    void handle.current?.close();
+  }, []);
 
   const statusLabel = useMemo(() => {
     switch (status) {
@@ -152,6 +147,8 @@ export default function App() {
         return "LIVE — SPEAK TO GET ROASTED";
       case "error":
         return "BROKEN";
+      case "closing":
+        return "LEAVING STAGE…";
       default:
         return status;
     }
@@ -161,7 +158,7 @@ export default function App() {
     <div className="page">
       <div className="noise" aria-hidden />
       <header className="hero">
-        <div className="badge">OPENAI REALTIME · {model}</div>
+        <div className="badge">OPENAI LIVE · {model}</div>
         <h1>
           EFF<span className="dash">-</span>OFF
         </h1>
@@ -179,7 +176,7 @@ export default function App() {
             not identity-based hate speech.
           </li>
           <li>
-            Transcripts stream over OpenAI Realtime (<code>gpt-realtime-2.1-mini</code>). Mic audio
+            Transcripts stream over OpenAI Live (<code>{model}</code>). Mic audio
             leaves your browser for the duration of the call.
           </li>
           <li>
@@ -217,12 +214,12 @@ export default function App() {
         </div>
 
         <div className="actions">
-          {!live ? (
+          {status !== "live" && status !== "connecting" && status !== "closing" ? (
             <button className="primary" disabled={!canConnect} onClick={onConnect}>
               {status === "connecting" ? "Connecting…" : "Step on stage"}
             </button>
           ) : (
-            <button className="danger" onClick={onHangup}>
+            <button className="danger" disabled={status === "closing"} onClick={onHangup}>
               Hang up / walk away
             </button>
           )}
@@ -233,14 +230,17 @@ export default function App() {
 
       <section className="card transcript">
         <h2>Set list (live transcripts)</h2>
-        <div className="log" ref={logRef}>
+        <div className="log" ref={logRef} onScroll={(event) => {
+          const el = event.currentTarget;
+          followCaptions.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}>
           {lines.length === 0 ? (
             <p className="muted">Roasts will land here once the mic goes live.</p>
           ) : (
             lines.map((line) => (
               <div key={line.id} className={`line ${line.role}`}>
                 <span className="who">{line.role === "you" ? "YOU" : "EFF-OFF"}</span>
-                <p>{line.text}</p>
+                <p style={{ whiteSpace: "pre-wrap" }}>{line.text}</p>
               </div>
             ))
           )}
@@ -249,8 +249,8 @@ export default function App() {
 
       <footer>
         <p>
-          Built with <a href="https://developers.openai.com/api/docs/guides/voice-agents">OpenAI Voice Agents</a>{" "}
-          · model <code>gpt-realtime-2.1-mini</code>
+          Built with <a href="https://developers.openai.com/api/docs/guides/live">OpenAI GPT-Live</a>{" "}
+          · model <code>{model}</code>
         </p>
       </footer>
     </div>

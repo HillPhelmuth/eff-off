@@ -1,13 +1,14 @@
 {
   "name": "eff-off",
   "version": "1.0.0",
-  "description": "EFF-OFF: always-on NSFW insult comic realtime voice agent (OpenAI gpt-realtime-2.1-mini)",
+  "description": "EFF-OFF: always-on NSFW insult comic voice app (OpenAI gpt-live-1)",
   "main": "index.js",
   "scripts": {
     "dev": "node server/index.js",
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +16,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@openai/agents": "^0.13.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "react": "^19.1.0",

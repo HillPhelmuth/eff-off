@@ -3,7 +3,8 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EFF_OFF_INSTRUCTIONS, REALTIME_MODEL, REALTIME_VOICE } from "./prompt.js";
+import { LIVE_MODEL } from "./prompt.js";
+import { createApi } from "./api.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,139 +20,7 @@ if (!apiKey) {
 }
 
 const app = express();
-app.use(express.json({ limit: "32kb" }));
-
-function buildSessionBody() {
-  return {
-    expires_after: {
-      anchor: "created_at",
-      seconds: Number(process.env.CLIENT_SECRET_TTL_SECONDS || 600),
-    },
-    session: {
-      type: "realtime",
-      model: REALTIME_MODEL,
-      instructions: EFF_OFF_INSTRUCTIONS,
-      audio: {
-        input: {
-          // Browser + headset friendly defaults
-          noise_reduction: { type: "near_field" },
-          transcription: {
-            model: "gpt-4o-mini-transcribe",
-          },
-          turn_detection: {
-            type: "server_vad",
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 500,
-            create_response: true,
-            interrupt_response: true,
-          },
-        },
-        output: {
-          voice: REALTIME_VOICE,
-        },
-      },
-      // low latency insult comic — keep reasoning light
-      // (supported by realtime-2 family; ignored safely if unsupported)
-      reasoning: { effort: "low" },
-    },
-  };
-}
-
-app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    name: "eff-off",
-    model: REALTIME_MODEL,
-    voice: REALTIME_VOICE,
-    hasApiKey: Boolean(apiKey),
-  });
-});
-
-/**
- * Mint an ephemeral client secret for browser WebRTC.
- * Browser never sees OPENAI_API_KEY.
- * Docs: POST /v1/realtime/client_secrets
- */
-app.post("/api/session", async (req, res) => {
-  if (!apiKey) {
-    return res.status(500).json({
-      error: "Server missing OPENAI_API_KEY. Set it in the environment / GitHub secret.",
-    });
-  }
-
-  try {
-    const safetyId =
-      (typeof req.body?.safetyIdentifier === "string" &&
-        req.body.safetyIdentifier.slice(0, 128)) ||
-      "eff-off-anonymous";
-
-    const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "OpenAI-Safety-Identifier": safetyId,
-      },
-      body: JSON.stringify(buildSessionBody()),
-    });
-
-    const text = await response.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
-
-    if (!response.ok) {
-      console.error("[eff-off] client_secrets error", response.status, data);
-      return res.status(response.status).json({
-        error: "OpenAI rejected session create",
-        details: data,
-      });
-    }
-
-    // Return only what the client needs
-    res.json({
-      value: data.value,
-      expires_at: data.expires_at,
-      model: REALTIME_MODEL,
-      voice: REALTIME_VOICE,
-    });
-  } catch (err) {
-    console.error("[eff-off] /api/session failed", err);
-    res.status(500).json({ error: "Failed to create realtime session" });
-  }
-});
-
-// Legacy alias matching OpenAI console samples
-app.get("/token", async (_req, res) => {
-  // forward to JSON POST semantics
-  const fakeReq = { body: {} };
-  // re-use handler logic via internal call by creating a local response shim is messy —
-  // just duplicate the small happy-path
-  if (!apiKey) {
-    return res.status(500).json({ error: "OPENAI_API_KEY missing" });
-  }
-  try {
-    const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(buildSessionBody()),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      return res.status(response.status).json(data);
-    }
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: String(e) });
-  }
-});
+app.use(createApi({ apiKey }));
 
 if (isProd) {
   const dist = path.join(root, "dist");
@@ -161,7 +30,7 @@ if (isProd) {
   });
 
   app.listen(port, () => {
-    console.log(`[eff-off] production on :${port} model=${REALTIME_MODEL}`);
+    console.log(`[eff-off] production on :${port} model=${LIVE_MODEL}`);
   });
 } else {
   const { createServer: createViteServer } = await import("vite");
@@ -185,6 +54,6 @@ if (isProd) {
   });
 
   app.listen(port, () => {
-    console.log(`[eff-off] dev on http://localhost:${port} model=${REALTIME_MODEL}`);
+    console.log(`[eff-off] dev on http://localhost:${port} model=${LIVE_MODEL}`);
   });
 }
