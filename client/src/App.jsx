@@ -2,6 +2,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { startSession } from "./agent.js";
 import { createCaptions } from "./captions.js";
 
+function loadSavedVoice(voices, fallback) {
+  try {
+    const saved = localStorage.getItem("effoff.voice");
+    if (saved && voices.some((v) => v.id === saved)) return saved;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
 export default function App() {
   const [status, setStatus] = useState("idle"); // idle | connecting | live | error
   const [error, setError] = useState("");
@@ -16,6 +26,24 @@ export default function App() {
   const followCaptions = useRef(true);
 
   const live = status === "live";
+  const busy = status === "connecting" || live;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { voices: list, defaultVoice } = await fetchVoices();
+      if (cancelled) return;
+      setVoices(list);
+      setVoice((prev) => {
+        // Prefer saved/current if still valid; else server default.
+        if (list.some((v) => v.id === prev)) return prev;
+        return loadSavedVoice(list, defaultVoice);
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (logRef.current && followCaptions.current) {
@@ -72,6 +100,16 @@ export default function App() {
 
   const canConnect = consented && twenties && status !== "connecting" && status !== "live" && status !== "closing";
 
+  const onVoiceChange = useCallback((e) => {
+    const next = e.target.value;
+    setVoice(next);
+    try {
+      localStorage.setItem("effoff.voice", next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const onConnect = useCallback(async () => {
     setError("");
     setLines([]);
@@ -120,7 +158,7 @@ export default function App() {
       setError(e?.message || String(e));
       setStatus("error");
     }
-  }, []);
+  }, [voice]);
 
   const onHangup = useCallback(async () => {
     const current = handle.current;
@@ -153,6 +191,8 @@ export default function App() {
         return status;
     }
   }, [status]);
+
+  const voiceMeta = voices.find((v) => v.id === voice);
 
   return (
     <div className="page">
@@ -205,6 +245,32 @@ export default function App() {
         <div className="status-row">
           <span className={`dot ${status}`} />
           <span className="status-text">{statusLabel}</span>
+        </div>
+
+        <div className="voice-picker">
+          <label htmlFor="voice-select">
+            Voice <span className="muted-inline">(locks in when you go live)</span>
+          </label>
+          <select
+            id="voice-select"
+            value={voice}
+            onChange={onVoiceChange}
+            disabled={busy}
+            aria-label="Realtime voice"
+          >
+            {voices.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+                {v.vibe ? ` — ${v.vibe}` : ""}
+              </option>
+            ))}
+          </select>
+          {voiceMeta?.vibe ? (
+            <p className="voice-hint muted">
+              Selected: <strong>{voiceMeta.label}</strong> · {voiceMeta.vibe}
+              {busy ? " · reconnect to switch" : ""}
+            </p>
+          ) : null}
         </div>
 
         <div className="viz" aria-hidden>

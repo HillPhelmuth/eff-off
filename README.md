@@ -107,6 +107,17 @@ npm run build
 ```
 
 Tests mock HTTP and WebRTC to verify startup sequencing, protocol payloads, failures, delegation fallback, caption grouping, cancellation and cleanup. For a real smoke test, verify greeting audio, two-way speech, captions, interruptions, denied microphone access, hangup and reconnect. Confirm microphone capture ends and browser traffic contains neither a project key nor Realtime requests. Live account access and spoken quality require this real test; a passing build alone does not verify them.
+## Voices
+
+The stage UI has a **Voice** dropdown with the built-in Realtime voices:
+
+`alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`
+
+- List: `GET /api/voices` (also embedded on `GET /api/health`)
+- Selection is sent on `POST /api/session` as `{ voice }` and stamped into `session.audio.output.voice` when the ephemeral key is minted
+- Choice is remembered in `localStorage` (`effoff.voice`); switch requires hangup + reconnect
+- Server default if unset/invalid: `OPENAI_REALTIME_VOICE` (default `ballad`)
+
 
 ## License
 
