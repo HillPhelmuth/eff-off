@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { startSession } from "./agent.js";
+import { startSession, fetchVoices } from "./agent.js";
 import { createCaptions } from "./captions.js";
 
 function loadSavedVoice(voices, fallback) {
@@ -20,13 +20,16 @@ export default function App() {
   const [micLevel, setMicLevel] = useState(0);
   const [consented, setConsented] = useState(false);
   const [twenties, setTwenties] = useState(false);
+  const [voices, setVoices] = useState([{ id: "marin", label: "Marin" }]);
+  const [voice, setVoice] = useState("");
+  const [voicesLoading, setVoicesLoading] = useState(true);
   const handle = useRef(null);
   const logRef = useRef(null);
   const attempt = useRef(null);
   const followCaptions = useRef(true);
 
   const live = status === "live";
-  const busy = status === "connecting" || live;
+  const busy = status === "connecting" || live || status === "closing";
 
   useEffect(() => {
     let cancelled = false;
@@ -39,7 +42,14 @@ export default function App() {
         if (list.some((v) => v.id === prev)) return prev;
         return loadSavedVoice(list, defaultVoice);
       });
-    })();
+    })().catch(() => {
+      if (!cancelled) {
+        setVoice("marin");
+        setError("Could not load voice options. Using Marin.");
+      }
+    }).finally(() => {
+      if (!cancelled) setVoicesLoading(false);
+    });
     return () => {
       cancelled = true;
     };
@@ -98,7 +108,7 @@ export default function App() {
     };
   }, [live]);
 
-  const canConnect = consented && twenties && status !== "connecting" && status !== "live" && status !== "closing";
+  const canConnect = consented && twenties && !voicesLoading && !busy;
 
   const onVoiceChange = useCallback((e) => {
     const next = e.target.value;
@@ -120,6 +130,7 @@ export default function App() {
     setStatus("connecting");
     try {
       const established = await startSession({
+        voice,
         signal: controller.signal,
         safetyIdentifier: localStorage.getItem("effoff.sid") || (() => {
           const id = crypto.randomUUID();
@@ -255,8 +266,8 @@ export default function App() {
             id="voice-select"
             value={voice}
             onChange={onVoiceChange}
-            disabled={busy}
-            aria-label="Realtime voice"
+            disabled={busy || voicesLoading}
+            aria-label="Live voice"
           >
             {voices.map((v) => (
               <option key={v.id} value={v.id}>
@@ -265,9 +276,9 @@ export default function App() {
               </option>
             ))}
           </select>
-          {voiceMeta?.vibe ? (
+          {voiceMeta ? (
             <p className="voice-hint muted">
-              Selected: <strong>{voiceMeta.label}</strong> · {voiceMeta.vibe}
+              Selected: <strong>{voiceMeta.label}</strong>{voiceMeta.vibe ? ` · ${voiceMeta.vibe}` : ""}
               {busy ? " · reconnect to switch" : ""}
             </p>
           ) : null}

@@ -1,9 +1,11 @@
 import express from "express";
 import { EFF_OFF_INSTRUCTIONS, LIVE_MODEL, LIVE_VOICE } from "./prompt.js";
+import { LIVE_VOICES } from "./voices.js";
 
 export function createApi({ apiKey = process.env.OPENAI_API_KEY, fetchImpl = fetch } = {}) {
   const app = express.Router();
   app.use(express.json({ limit: "32kb" }));
+  app.get("/api/voices", (_req, res) => res.json({ voices: LIVE_VOICES, defaultVoice: LIVE_VOICE }));
   app.get("/api/health", (_req, res) => res.json({
     ok: true, name: "eff-off", model: LIVE_MODEL, voice: LIVE_VOICE, hasApiKey: Boolean(apiKey),
   }));
@@ -11,9 +13,12 @@ export function createApi({ apiKey = process.env.OPENAI_API_KEY, fetchImpl = fet
     error: "Token endpoint retired. POST an SDP offer to /api/session.",
   }));
   app.post("/api/session", async (req, res) => {
-    const { sdp, safetyIdentifier } = req.body || {};
+    const { sdp, safetyIdentifier, voice = LIVE_VOICE } = req.body || {};
     if (typeof sdp !== "string" || !sdp.startsWith("v=0") || !/^m=audio /m.test(sdp)) {
       return res.status(400).json({ error: "A WebRTC SDP offer with audio is required." });
+    }
+    if (!LIVE_VOICES.some(option => option.id === voice)) {
+      return res.status(400).json({ error: "Select a supported Live voice." });
     }
     if (!apiKey) return res.status(503).json({ error: "Server missing OPENAI_API_KEY." });
     try {
@@ -30,7 +35,7 @@ export function createApi({ apiKey = process.env.OPENAI_API_KEY, fetchImpl = fet
         body: JSON.stringify({
           session: {
             model: LIVE_MODEL, instructions: EFF_OFF_INSTRUCTIONS,
-            audio: { output: { voice: LIVE_VOICE } },
+            audio: { output: { voice } },
             delegation: { type: "client" }, store: false,
           },
           transport: { type: "webrtc", sdp },
@@ -47,7 +52,7 @@ export function createApi({ apiKey = process.env.OPENAI_API_KEY, fetchImpl = fet
         return res.status(502).json({ error: "OpenAI returned an invalid Live session answer." });
       }
       res.set("Cache-Control", "no-store").json({
-        sessionId: data.session.id, sdp: data.transport.sdp, model: LIVE_MODEL, voice: LIVE_VOICE,
+        sessionId: data.session.id, sdp: data.transport.sdp, model: LIVE_MODEL, voice,
       });
     } catch (error) {
       res.status(error.name === "TimeoutError" ? 504 : 502).json({ error: "Failed to create Live session." });

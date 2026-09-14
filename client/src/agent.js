@@ -5,7 +5,19 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-export async function startSession({ onEvent = () => {}, safetyIdentifier, signal } = {}, dependencies = {}) {
+export async function fetchVoices() {
+  const response = await fetch("/api/voices");
+  if (!response.ok) throw new Error("Could not load voice options. Using Marin.");
+  const data = await response.json();
+  if (!Array.isArray(data.voices) || !data.voices.length ||
+      !data.voices.every(v => typeof v.id === "string" && typeof v.label === "string") ||
+      !data.voices.some(v => v.id === data.defaultVoice)) {
+    throw new Error("Invalid voice options. Using Marin.");
+  }
+  return data;
+}
+
+export async function startSession({ onEvent = () => {}, safetyIdentifier, signal, voice } = {}, dependencies = {}) {
   const {
     createPeer = () => new RTCPeerConnection(),
     getMicrophone = () => navigator.mediaDevices.getUserMedia({ audio: true }),
@@ -147,7 +159,7 @@ export async function startSession({ onEvent = () => {}, safetyIdentifier, signa
       checkActive();
       const response = await fetchImpl("/api/session", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
-        body: JSON.stringify({ sdp: peer.localDescription.sdp, safetyIdentifier: safetyIdentifier || uuid() }),
+        body: JSON.stringify({ sdp: peer.localDescription.sdp, safetyIdentifier: safetyIdentifier || uuid(), voice }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Failed to create Live session.");

@@ -231,3 +231,33 @@ test("invalid HTTP answer releases browser resources", async () => {
   assert.equal(f.track.stopped, true);
   assert.equal(f.peer.closed, true);
 });
+test("voice catalogue includes the default and server validates selected voices", async t => {
+  let selected;
+  let calls = 0;
+  const request = await server(t, async (_url, init) => {
+    calls++;
+    selected = JSON.parse(init.body).session.audio.output.voice;
+    return Response.json(answer);
+  });
+  const catalogue = await (await request('/api/voices')).json();
+  assert.equal(catalogue.defaultVoice, 'marin');
+  assert.ok(catalogue.voices.some(v => v.id === 'cinder'));
+  const response = await request(undefined, { sdp: offer, voice: 'cinder' });
+  assert.equal(response.status, 200);
+  assert.equal(selected, 'cinder');
+  assert.equal((await response.json()).voice, 'cinder');
+  for (const voice of ['unknown', '', null, 123, { id: 'cinder' }]) {
+    assert.equal((await request(undefined, { sdp: offer, voice })).status, 400);
+  }
+  assert.equal(calls, 1);
+});
+test("browser sends the selected voice with the SDP offer", async () => {
+  const f = fixture();
+  f.deps.fetchImpl = async (_url, init) => {
+    assert.equal(JSON.parse(init.body).voice, 'cinder');
+    return Response.json({ ...result, voice: 'cinder' });
+  };
+  const session = await f.start({ voice: 'cinder' });
+  assert.equal(session.voice, 'cinder');
+  await session.close();
+});

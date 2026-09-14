@@ -8,7 +8,7 @@ Built with [OpenAI GPT-Live](https://developers.openai.com/api/docs/guides/live)
 
 ## Architecture
 
-The browser creates an SDP offer and sends `POST /api/session` with `{ sdp, safetyIdentifier }`. Express exchanges it with `POST https://api.openai.com/v1/live/sessions`, adding the model, voice and prompt on the server. It returns `{ sessionId, sdp, model, voice }`. The project API key never leaves the server; audio flows directly between the browser and OpenAI.
+The browser creates an SDP offer and sends `POST /api/session` with `{ sdp, safetyIdentifier, voice }`. Express exchanges it with `POST https://api.openai.com/v1/live/sessions`, adding the model, voice and prompt on the server. It returns `{ sessionId, sdp, model, voice }`. The project API key never leaves the server; audio flows directly between the browser and OpenAI.
 
 The `oai-events` data channel carries Live events. Startup waits for `session.started`; an acknowledged `session.instructions.append` requests the opening roast. Input and output transcript fragments grow independently, including overlapping speech. Caption rows use a one-second grouping gap, not semantic turn boundaries. The microphone meter shares the call's capture stream.
 
@@ -109,15 +109,12 @@ npm run build
 Tests mock HTTP and WebRTC to verify startup sequencing, protocol payloads, failures, delegation fallback, caption grouping, cancellation and cleanup. For a real smoke test, verify greeting audio, two-way speech, captions, interruptions, denied microphone access, hangup and reconnect. Confirm microphone capture ends and browser traffic contains neither a project key nor Realtime requests. Live account access and spoken quality require this real test; a passing build alone does not verify them.
 ## Voices
 
-The stage UI has a **Voice** dropdown with the built-in Realtime voices:
+Choose a voice from the stage dropdown before connecting. The selection is remembered in this browser and locked while connecting, live, or closing; hang up to choose another voice.
 
-`alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`
-
-- List: `GET /api/voices` (also embedded on `GET /api/health`)
-- Selection is sent on `POST /api/session` as `{ voice }` and stamped into `session.audio.output.voice` when the ephemeral key is minted
-- Choice is remembered in `localStorage` (`effoff.voice`); switch requires hangup + reconnect
-- Server default if unset/invalid: `OPENAI_REALTIME_VOICE` (default `ballad`)
-
+- `GET /api/voices` returns the available Live voices and server default.
+- The picker includes `marin` and the additional voices documented in the [Live session guide](https://developers.openai.com/api/docs/guides/live-conversations): `quartz`, `ripple`, `vesper`, `willow`, `stone`, `gleam`, `meridian`, `bossa`, `tempo`, `beacon`, `delta`, and `cinder`.
+- `POST /api/session` accepts `{ sdp, safetyIdentifier, voice }`. The server validates the selected voice and sets `session.audio.output.voice` during SDP exchange. Unknown selections receive HTTP 400.
+- If omitted, the voice defaults to `OPENAI_LIVE_VOICE` (`marin`). A configured server default is also included in the dropdown. An obsolete saved selection falls back to the server default.
 
 ## License
 
