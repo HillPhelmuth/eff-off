@@ -81,6 +81,17 @@ docker run --rm -p 3000:3000 -e OPENAI_API_KEY=sk-... ghcr.io/<owner>/eff-off:la
 
 If you host on a PaaS (Railway / Fly / Render / Cloud Run), point it at the GHCR image and set `OPENAI_API_KEY` there. Actions already published the image.
 
+### Cloudflare Pages (optional parallel deployment)
+
+Cloudflare support lives alongside the Node/Express deployment and does not change the Docker or Azure Container Apps path. Pages uses the Vite output in `dist` and the route handlers in `functions/`:
+
+1. Create a Cloudflare Pages project from this repository using the production branch.
+2. Set the build command to `npm run build` and the output directory to `dist`.
+3. Add `OPENAI_API_KEY` as a Pages secret. Optionally add `OPENAI_LIVE_MODEL` and `OPENAI_LIVE_VOICE`.
+4. Keep the Pages Functions enabled; they provide `/api/voices`, `/api/health`, and `/api/session` on the same origin as the frontend.
+
+For local Pages testing, install Wrangler and run `npx wrangler pages dev dist` after creating a local `.dev.vars` from `.dev.vars.example`. The committed `wrangler.jsonc` declares the Pages output directory and compatibility date; it does not affect the existing Node or Docker commands.
+
 ## Project layout
 
 ```

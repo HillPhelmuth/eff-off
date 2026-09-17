@@ -1,0 +1,3 @@
+OPENAI_API_KEY=replace-with-a-server-side-key
+OPENAI_LIVE_MODEL=gpt-live-1
+OPENAI_LIVE_VOICE=marin
