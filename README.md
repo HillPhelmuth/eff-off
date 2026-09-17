@@ -81,16 +81,18 @@ docker run --rm -p 3000:3000 -e OPENAI_API_KEY=sk-... ghcr.io/<owner>/eff-off:la
 
 If you host on a PaaS (Railway / Fly / Render / Cloud Run), point it at the GHCR image and set `OPENAI_API_KEY` there. Actions already published the image.
 
-### Cloudflare Pages (optional parallel deployment)
+### Cloudflare Workers (optional parallel deployment)
 
-Cloudflare support lives alongside the Node/Express deployment and does not change the Docker or Azure Container Apps path. Pages uses the Vite output in `dist` and the route handlers in `functions/`:
+Cloudflare support lives alongside the Node/Express deployment and does not change the Docker or Azure Container Apps path. Workers Builds deploys `cloudflare/worker.js` and the Vite output in `dist` as one Worker with static assets:
 
-1. Create a Cloudflare Pages project from this repository using the production branch.
-2. Set the build command to `npm run build` and the output directory to `dist`.
-3. Add `OPENAI_API_KEY` as a Pages secret. Optionally add `OPENAI_LIVE_MODEL` and `OPENAI_LIVE_VOICE`.
-4. Keep the Pages Functions enabled; they provide `/api/voices`, `/api/health`, and `/api/session` on the same origin as the frontend.
+1. Connect this repository to a Cloudflare Worker using Workers Builds.
+2. Set the build command to `npm run build`.
+3. Set the deploy command to `npx wrangler deploy` or `npm run cloudflare:deploy`.
+4. Add `OPENAI_API_KEY` under the Worker's runtime Variables & Secrets. Optionally add `OPENAI_LIVE_MODEL` and `OPENAI_LIVE_VOICE` there as well.
 
-For local Pages testing, install Wrangler and run `npx wrangler pages dev dist` after creating a local `.dev.vars` from `.dev.vars.example`. The committed `wrangler.jsonc` declares the Pages output directory and compatibility date; it does not affect the existing Node or Docker commands.
+The Worker exposes `/api/voices`, `/api/health`, and `/api/session` and forwards all other requests to the `dist` asset binding. The committed `wrangler.jsonc` provides the required Worker entry point and static asset directory; it does not affect the existing Node or Docker commands.
+
+For local Workers testing, install Wrangler and run `npx wrangler dev` after creating a local `.dev.vars` from `.dev.vars.example`.
 
 ## Project layout
 
@@ -104,7 +106,11 @@ client/src/
   agent.js      Native WebRTC and Live session lifecycle
   captions.js   Timestamped Live transcript grouping
   styles.css
+cloudflare/
+  api.js        Worker-compatible Live API handlers
+  worker.js     Worker entry point and static-asset fallback
 deploy/publish.yml   # copy → .github/workflows/publish.yml to enable CI
+wrangler.jsonc       # Cloudflare Workers entry point + dist asset binding
 Dockerfile
 ```
 
